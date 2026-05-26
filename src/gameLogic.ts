@@ -79,7 +79,19 @@ export function initGame(players: Player[]): GameState {
   };
 }
 
-export function isPlayable(card: Card, topCard: Card, currentColor: Color): boolean {
+export function isPlayable(card: Card, topCard: Card, currentColor: Color, pendingDraw: number): boolean {
+  // If there's a pending draw (stacking scenario), only matching draw cards are playable
+  if (pendingDraw > 0) {
+    // +2 on the table: can respond with another +2 or +4
+    if (topCard.value === 'draw2') {
+      return card.value === 'draw2' || card.value === 'wild4';
+    }
+    // +4 on the table: can respond with another +4
+    if (topCard.value === 'wild4') {
+      return card.value === 'wild4';
+    }
+  }
+  // Normal play
   if (card.color === 'wild') return true;
   if (card.color === currentColor) return true;
   if (card.value === topCard.value) return true;
@@ -92,7 +104,7 @@ export function applyPlay(state: GameState, cardId: string, chosenColor?: Color)
   if (cardIdx === -1) return state;
   const card = player.hand[cardIdx];
   const topCard = state.discardPile[state.discardPile.length - 1];
-  if (!isPlayable(card, topCard, state.currentColor)) return state;
+  if (!isPlayable(card, topCard, state.currentColor, state.pendingDraw)) return state;
 
   const newHand = player.hand.filter((_, i) => i !== cardIdx);
   let newDiscard = [...state.discardPile, card];
@@ -100,13 +112,76 @@ export function applyPlay(state: GameState, cardId: string, chosenColor?: Color)
   let newDirection = state.direction;
   const newColor: Color = card.color === 'wild' ? (chosenColor ?? 'red') : card.color;
   let newCurrentIndex = state.currentPlayerIndex;
+  let newPendingDraw = state.pendingDraw;
   const n = state.players.length;
   const step = state.direction === 'clockwise' ? 1 : -1;
-  let event: GameEvent = { type: 'play', player: player.name, card };
+
+  // Stacking: +2 on +2, or +4 on +4
+  if (card.value === 'draw2') {
+    newPendingDraw += 2;
+    const targetIdx = (state.currentPlayerIndex + step + n) % n;
+    const targetPlayer = state.players[targetIdx];
+
+    // Check if the target can/will stack — we just add pending and move to them
+    // The target will either stack another +2/+4 or be forced to draw
+    // For now: accumulate pendingDraw and advance to target
+    newCurrentIndex = targetIdx;
+
+    const isStacking = newPendingDraw > state.pendingDraw && state.pendingDraw > 0;
+    const event: GameEvent = isStacking
+      ? { type: 'draw2', target: targetPlayer.name }
+      : { type: 'draw2', target: targetPlayer.name };
+
+    const updatedPlayers = state.players.map((p, i) =>
+      i === state.currentPlayerIndex ? { ...p, hand: newHand } : p
+    );
+
+    return {
+      ...state,
+      players: updatedPlayers,
+      currentPlayerIndex: newCurrentIndex,
+      direction: newDirection,
+      drawPile: newDraw,
+      discardPile: newDiscard,
+      currentColor: newColor,
+      pendingDraw: newPendingDraw,
+      winner: newHand.length === 0 ? player.name : null,
+      phase: newHand.length === 0 ? 'ended' : 'playing',
+      lastEvent: { type: 'draw2', target: targetPlayer.name },
+    };
+  }
+
+  if (card.value === 'wild4') {
+    newPendingDraw += 4;
+    const targetIdx = (state.currentPlayerIndex + step + n) % n;
+    const targetPlayer = state.players[targetIdx];
+    newCurrentIndex = targetIdx;
+
+    const updatedPlayers = state.players.map((p, i) =>
+      i === state.currentPlayerIndex ? { ...p, hand: newHand } : p
+    );
+
+    return {
+      ...state,
+      players: updatedPlayers,
+      currentPlayerIndex: newCurrentIndex,
+      direction: newDirection,
+      drawPile: newDraw,
+      discardPile: newDiscard,
+      currentColor: newColor,
+      pendingDraw: newPendingDraw,
+      winner: newHand.length === 0 ? player.name : null,
+      phase: newHand.length === 0 ? 'ended' : 'playing',
+      lastEvent: { type: 'wild4', target: targetPlayer.name, color: newColor },
+    };
+  }
+
+  // If there was a pending draw and the player didn't stack, force them to draw
+  // This case is handled by applyDraw — when pendingDraw > 0 and they choose to draw,
+  // they draw all pending cards.
 
   if (card.value === 'reverse') {
     newDirection = state.direction === 'clockwise' ? 'counterclockwise' : 'clockwise';
-    event = { type: 'reverse' };
     if (n === 2) {
       newCurrentIndex = state.currentPlayerIndex;
     } else {
@@ -115,75 +190,22 @@ export function applyPlay(state: GameState, cardId: string, chosenColor?: Color)
   } else if (card.value === 'skip') {
     const skippedIdx = (state.currentPlayerIndex + step + n) % n;
     newCurrentIndex = (skippedIdx + step + n) % n;
-    event = { type: 'skip', player: state.players[skippedIdx].name };
-  } else if (card.value === 'draw2') {
-    const targetIdx = (state.currentPlayerIndex + step + n) % n;
-    const targetPlayer = state.players[targetIdx];
-    const { cards, drawPile, discardPile } = drawCards(newDraw, newDiscard, 2);
-    newDraw = drawPile;
-    newDiscard = discardPile;
-    const updatedPlayers = state.players.map((p, i) => {
-      if (i === state.currentPlayerIndex) return { ...p, hand: newHand };
-      if (i === targetIdx) return { ...p, hand: [...targetPlayer.hand, ...cards] };
-      return p;
-    });
-    newCurrentIndex = (targetIdx + step + n) % n;
-    return {
-      ...state,
-      players: updatedPlayers,
-      currentPlayerIndex: newCurrentIndex,
-      direction: newDirection,
-      drawPile: newDraw,
-      discardPile: newDiscard,
-      currentColor: newColor,
-      pendingDraw: 0,
-      winner: newHand.length === 0 ? player.name : null,
-      phase: newHand.length === 0 ? 'ended' : 'playing',
-      lastEvent: { type: 'draw2', target: targetPlayer.name },
-    };
-  } else if (card.value === 'wild4') {
-    const targetIdx = (state.currentPlayerIndex + step + n) % n;
-    const targetPlayer = state.players[targetIdx];
-    const { cards, drawPile, discardPile } = drawCards(newDraw, newDiscard, 4);
-    newDraw = drawPile;
-    newDiscard = discardPile;
-    const updatedPlayers = state.players.map((p, i) => {
-      if (i === state.currentPlayerIndex) return { ...p, hand: newHand };
-      if (i === targetIdx) return { ...p, hand: [...targetPlayer.hand, ...cards] };
-      return p;
-    });
-    newCurrentIndex = (targetIdx + step + n) % n;
-    return {
-      ...state,
-      players: updatedPlayers,
-      currentPlayerIndex: newCurrentIndex,
-      direction: newDirection,
-      drawPile: newDraw,
-      discardPile: newDiscard,
-      currentColor: newColor,
-      pendingDraw: 0,
-      winner: newHand.length === 0 ? player.name : null,
-      phase: newHand.length === 0 ? 'ended' : 'playing',
-      lastEvent: { type: 'wild4', target: targetPlayer.name, color: newColor },
-    };
   } else {
     newCurrentIndex = (state.currentPlayerIndex + step + n) % n;
   }
 
-  if (card.color === 'wild') {
-    event = { type: 'colorChange', color: newColor };
-  }
+  let event: GameEvent = { type: 'play', player: player.name, card };
+  if (card.value === 'reverse') event = { type: 'reverse' };
+  else if (card.value === 'skip') event = { type: 'skip', player: state.players[(state.currentPlayerIndex + step + n) % n].name };
+  if (card.color === 'wild') event = { type: 'colorChange', color: newColor };
 
   const updatedPlayers = state.players.map((p, i) =>
     i === state.currentPlayerIndex ? { ...p, hand: newHand } : p
   );
 
-  const nextPlayer = updatedPlayers[newCurrentIndex];
   const finalEvent: GameEvent = newHand.length === 0
     ? { type: 'win', player: player.name }
-    : card.color === 'wild'
-      ? { type: 'colorChange', color: newColor }
-      : event;
+    : event;
 
   return {
     ...state,
@@ -201,14 +223,13 @@ export function applyPlay(state: GameState, cardId: string, chosenColor?: Color)
 }
 
 export function applyDraw(state: GameState): GameState {
-  const { cards, drawPile, discardPile } = drawCards(state.drawPile, state.discardPile, 1);
+  const count = Math.max(state.pendingDraw, 1);
+  const { cards, drawPile, discardPile } = drawCards(state.drawPile, state.discardPile, count);
   const n = state.players.length;
   const step = state.direction === 'clockwise' ? 1 : -1;
-  const drawnCard = cards[0];
-  if (!drawnCard) return state;
 
   const updatedPlayers = state.players.map((p, i) =>
-    i === state.currentPlayerIndex ? { ...p, hand: [...p.hand, drawnCard] } : p
+    i === state.currentPlayerIndex ? { ...p, hand: [...p.hand, ...cards] } : p
   );
   const newCurrentIndex = (state.currentPlayerIndex + step + n) % n;
 
@@ -218,6 +239,7 @@ export function applyDraw(state: GameState): GameState {
     currentPlayerIndex: newCurrentIndex,
     drawPile,
     discardPile,
-    lastEvent: { type: 'draw', player: state.players[state.currentPlayerIndex].name, count: 1 },
+    pendingDraw: 0,
+    lastEvent: { type: 'draw', player: state.players[state.currentPlayerIndex].name, count },
   };
 }

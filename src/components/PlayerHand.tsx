@@ -8,11 +8,12 @@ interface Props {
   isMyTurn: boolean;
   topCard: Card;
   currentColor: Color;
+  pendingDraw: number;
   onPlay: (cardId: string) => void;
 }
 
-export default function PlayerHand({ cards, isMyTurn, topCard, currentColor, onPlay }: Props) {
-  const canPlay = (card: Card) => isMyTurn && isPlayable(card, topCard, currentColor);
+export default function PlayerHand({ cards, isMyTurn, topCard, currentColor, pendingDraw, onPlay }: Props) {
+  const canPlay = (card: Card) => isMyTurn && isPlayable(card, topCard, currentColor, pendingDraw);
 
   return (
     <div className="w-full overflow-x-auto overflow-y-visible pb-2 -mx-2 px-2 scrollbar-hide">

@@ -1,11 +1,11 @@
 import React, { useState } from 'react';
-import { GameState, Color, Card } from '../types';
+import { GameState, Color } from '../types';
 import CardImage from './CardImage';
 import PlayerHand from './PlayerHand';
 import OpponentHand from './OpponentHand';
 import ColorPicker from './ColorPicker';
 import GameNotifications from './GameNotifications';
-import { RotateCcw, RotateCw, Layers } from 'lucide-react';
+import { RotateCcw, RotateCw, Layers, AlertTriangle } from 'lucide-react';
 
 interface Props {
   gameState: GameState;
@@ -26,6 +26,7 @@ export default function GameBoard({ gameState, myPlayerId, onPlay, onDraw }: Pro
   const me = gameState.players[myIndex];
   const isMyTurn = gameState.currentPlayerIndex === myIndex;
   const topCard = gameState.discardPile[gameState.discardPile.length - 1];
+  const isStacked = gameState.pendingDraw > 0;
 
   const opponents = gameState.players
     .map((p, i) => ({ player: p, idx: i }))
@@ -121,7 +122,7 @@ export default function GameBoard({ gameState, myPlayerId, onPlay, onDraw }: Pro
             </div>
             {isMyTurn && (
               <p className="text-center text-yellow-300 text-[10px] sm:text-xs mt-0.5 animate-pulse font-semibold">
-                Pesca
+                {isStacked ? `Pesca ${gameState.pendingDraw}!` : 'Pesca'}
               </p>
             )}
           </div>
@@ -132,11 +133,27 @@ export default function GameBoard({ gameState, myPlayerId, onPlay, onDraw }: Pro
           </div>
         </div>
 
+        {/* Stacking indicator */}
+        {isStacked && (
+          <div className="flex justify-center">
+            <div className="animate-shake bg-red-600/40 border border-red-500/60 rounded-full px-4 sm:px-5 py-1.5 flex items-center gap-2">
+              <AlertTriangle size={16} className="text-red-400" />
+              <span className="text-red-200 text-xs sm:text-sm font-bold">
+                +{gameState.pendingDraw} accumulati! Rispondi o pesca!
+              </span>
+            </div>
+          </div>
+        )}
+
         {/* Turn indicator */}
         <div className="text-center">
-          {isMyTurn ? (
+          {isMyTurn && !isStacked ? (
             <span className="inline-block bg-yellow-400/20 border border-yellow-400/40 rounded-full px-4 sm:px-6 py-1 text-yellow-300 text-xs sm:text-sm font-bold animate-pulse">
               Il tuo turno!
+            </span>
+          ) : isMyTurn && isStacked ? (
+            <span className="inline-block bg-red-500/30 border border-red-500/50 rounded-full px-4 sm:px-6 py-1 text-red-300 text-xs sm:text-sm font-bold animate-pulse">
+              Rispondi con +{topCard.value === 'draw2' ? '2/+4' : '4'} o pesca {gameState.pendingDraw}!
             </span>
           ) : (
             <span className="inline-block text-gray-500 text-xs sm:text-sm">
@@ -156,6 +173,7 @@ export default function GameBoard({ gameState, myPlayerId, onPlay, onDraw }: Pro
               isMyTurn={isMyTurn}
               topCard={topCard}
               currentColor={gameState.currentColor}
+              pendingDraw={gameState.pendingDraw}
               onPlay={handleCardClick}
             />
           </div>

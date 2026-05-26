@@ -24,6 +24,12 @@ export default function App() {
   const peerIdToPlayerRef = useRef<Map<string, string>>(new Map());
   const nameRef = useRef<string>('');
   const roomCodeRef = useRef<string | null>(null);
+  const isHostRef = useRef(false);
+  const myIdRef = useRef<string | null>(null);
+  const sendToRef = useRef<(peerId: string, msg: PeerMessage) => void>(() => {});
+
+  // Keep refs in sync
+  isHostRef.current = isHost;
 
   // Clean URL after reading room code
   useEffect(() => {
@@ -44,7 +50,6 @@ export default function App() {
       }
       case 'lobby-state': {
         setLobbyPlayers(msg.players);
-        // Also find our own player from lobby state
         break;
       }
       case 'game-start':
@@ -62,12 +67,12 @@ export default function App() {
 
   const handlePeerConnect = useCallback((peerId: string) => {
     // If we're a guest and just connected to host, send our join message
-    if (!isHost && myId) {
-      const player: Player = { id: myId, name: nameRef.current, hand: [], isHost: false };
+    if (!isHostRef.current && myIdRef.current) {
+      const player: Player = { id: myIdRef.current, name: nameRef.current, hand: [], isHost: false };
       setMyPlayer(player);
-      sendToInternal(peerId, { type: 'player-join', player });
+      sendToRef.current(peerId, { type: 'player-join', player });
     }
-  }, [isHost, myId]);
+  }, []);
 
   const handlePeerDisconnect = useCallback((peerId: string) => {
     const playerId = peerIdToPlayerRef.current.get(peerId);
@@ -82,13 +87,10 @@ export default function App() {
     onPeerDisconnect: handlePeerDisconnect,
   });
 
-  // Store sendTo in a ref so callbacks can use it
-  const sendToRef = useRef(sendTo);
+  // Keep myId ref in sync
+  useEffect(() => { myIdRef.current = myId; }, [myId]);
+  // Keep sendTo ref in sync
   useEffect(() => { sendToRef.current = sendTo; }, [sendTo]);
-
-  const sendToInternal = (peerId: string, msg: PeerMessage) => {
-    sendToRef.current(peerId, msg);
-  };
 
   // Host: once myId is set, create self player
   const hostReadyRef = useRef(false);

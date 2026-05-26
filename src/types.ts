@@ -31,7 +31,19 @@ export interface GameState {
   currentColor: Color;
   winner: string | null;
   pendingDraw: number;
+  lastEvent: GameEvent | null;
 }
+
+export type GameEvent =
+  | { type: 'play'; player: string; card: Card }
+  | { type: 'draw'; player: string; count: number }
+  | { type: 'skip'; player: string }
+  | { type: 'reverse' }
+  | { type: 'draw2'; target: string }
+  | { type: 'wild4'; target: string; color: Color }
+  | { type: 'colorChange'; color: Color }
+  | { type: 'turn'; player: string }
+  | { type: 'win'; player: string };
 
 export type PeerMessage =
   | { type: 'player-join'; player: Player }
@@ -40,3 +52,10 @@ export type PeerMessage =
   | { type: 'player-left'; playerId: string }
   | { type: 'lobby-state'; players: Player[] }
   | { type: 'chat'; from: string; text: string };
+
+export function generateRoomCode(): string {
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789';
+  let code = '';
+  for (let i = 0; i < 8; i++) code += chars[Math.floor(Math.random() * chars.length)];
+  return code;
+}

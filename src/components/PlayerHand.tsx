@@ -12,45 +12,35 @@ interface Props {
 }
 
 export default function PlayerHand({ cards, isMyTurn, topCard, currentColor, onPlay }: Props) {
-  const playable = (card: Card) => isMyTurn && isPlayable(card, topCard, currentColor);
-
-  const offset = Math.min(60, Math.max(20, 300 / Math.max(cards.length, 1)));
+  const canPlay = (card: Card) => isMyTurn && isPlayable(card, topCard, currentColor);
 
   return (
-    <div className="flex justify-center items-end relative" style={{ minHeight: 100 }}>
-      <div
-        className="flex items-end justify-center"
-        style={{
-          gap: cards.length > 8 ? -8 : 4,
-          flexWrap: cards.length > 12 ? 'wrap' : 'nowrap',
-          maxWidth: '100%',
-          padding: '0 8px',
-        }}
-      >
+    <div className="w-full overflow-x-auto overflow-y-visible pb-2 -mx-2 px-2 scrollbar-hide">
+      <div className="flex items-end justify-center min-w-min" style={{ gap: cards.length > 10 ? 2 : 4 }}>
         {cards.map((card, i) => {
-          const canPlay = playable(card);
+          const playable = canPlay(card);
+          const spread = Math.min(28, Math.max(12, 220 / Math.max(cards.length, 1)));
           const angle = cards.length > 1
-            ? ((i / (cards.length - 1)) - 0.5) * Math.min(30, cards.length * 3)
+            ? ((i / (cards.length - 1)) - 0.5) * Math.min(20, cards.length * 2)
             : 0;
-          const yOffset = Math.abs(angle) * 0.6;
 
           return (
             <div
               key={card.id}
-              className={`transition-all duration-150 ${canPlay ? 'hover:-translate-y-4 cursor-pointer' : 'opacity-70'}`}
+              className={`transition-all duration-200 ${playable ? 'hover:-translate-y-5 sm:hover:-translate-y-6' : 'opacity-60 sm:opacity-70'}`}
               style={{
-                transform: `rotate(${angle}deg) translateY(${yOffset}px)`,
+                marginLeft: i > 0 ? -Math.max(0, 80 - spread) : 0,
+                transform: `rotate(${angle}deg)`,
                 transformOrigin: 'bottom center',
                 zIndex: i,
-                marginLeft: cards.length > 8 ? -18 : 0,
               }}
-              onClick={() => canPlay && onPlay(card.id)}
-              title={canPlay ? 'Gioca questa carta' : undefined}
+              onClick={() => playable && onPlay(card.id)}
             >
               <CardImage
                 card={card}
-                highlight={canPlay}
-                disabled={!canPlay}
+                highlight={playable}
+                disabled={!playable}
+                mini={cards.length > 12}
               />
             </div>
           );

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import Peer, { DataConnection } from 'peerjs';
-import { PeerMessage, Player } from '../types';
+import { PeerMessage } from '../types';
 
 export type ConnectionStatus = 'idle' | 'connecting' | 'connected' | 'error';
 
@@ -8,6 +8,18 @@ interface UsePeerOptions {
   onMessage: (msg: PeerMessage, fromId: string) => void;
   onPeerConnect?: (peerId: string) => void;
   onPeerDisconnect?: (peerId: string) => void;
+}
+
+// Prefix to namespace room codes from other peerjs IDs
+const ROOM_PREFIX = 'uno-room-';
+
+export function peerIdFromRoom(roomCode: string): string {
+  return `${ROOM_PREFIX}${roomCode}`;
+}
+
+export function roomFromPeerId(peerId: string): string | null {
+  if (peerId.startsWith(ROOM_PREFIX)) return peerId.slice(ROOM_PREFIX.length);
+  return null;
 }
 
 export function usePeer({ onMessage, onPeerConnect, onPeerDisconnect }: UsePeerOptions) {
@@ -41,11 +53,10 @@ export function usePeer({ onMessage, onPeerConnect, onPeerDisconnect }: UsePeerO
     });
   }, []);
 
-  const init = useCallback((customId?: string) => {
+  const initAsHost = useCallback((roomCode: string) => {
     setStatus('connecting');
-    const peer = customId
-      ? new Peer(customId, { debug: 0 })
-      : new Peer({ debug: 0 });
+    const peerId = peerIdFromRoom(roomCode);
+    const peer = new Peer(peerId, { debug: 0 });
     peerRef.current = peer;
 
     peer.on('open', (id) => {
@@ -66,9 +77,30 @@ export function usePeer({ onMessage, onPeerConnect, onPeerDisconnect }: UsePeerO
     });
   }, [setupConnection]);
 
-  const connectTo = useCallback((hostId: string) => {
+  const initAsGuest = useCallback(() => {
+    setStatus('connecting');
+    // Guest gets a random ID
+    const peer = new Peer({ debug: 0 });
+    peerRef.current = peer;
+
+    peer.on('open', (id) => {
+      setMyId(id);
+      setStatus('connected');
+    });
+
+    peer.on('error', () => {
+      setStatus('error');
+    });
+
+    peer.on('disconnected', () => {
+      setStatus('idle');
+    });
+  }, []);
+
+  const connectToHost = useCallback((roomCode: string) => {
     if (!peerRef.current) return;
-    const conn = peerRef.current.connect(hostId, { reliable: true });
+    const hostPeerId = peerIdFromRoom(roomCode);
+    const conn = peerRef.current.connect(hostPeerId, { reliable: true });
     setupConnection(conn);
   }, [setupConnection]);
 
@@ -95,5 +127,5 @@ export function usePeer({ onMessage, onPeerConnect, onPeerDisconnect }: UsePeerO
     return [...connectionsRef.current.keys()];
   }, []);
 
-  return { myId, status, init, connectTo, sendTo, broadcast, destroy, connectedPeerIds };
+  return { myId, status, initAsHost, initAsGuest, connectToHost, sendTo, broadcast, destroy, connectedPeerIds };
 }

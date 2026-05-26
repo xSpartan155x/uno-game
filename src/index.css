@@ -4,8 +4,10 @@
 
 @layer base {
   body {
-    @apply bg-gray-950 text-white;
+    @apply bg-gray-950 text-white overflow-x-hidden;
     font-family: 'Arial', sans-serif;
+    -webkit-tap-highlight-color: transparent;
+    touch-action: manipulation;
   }
 }
 
@@ -16,16 +18,16 @@
   }
 
   .glass-card {
-    background: rgba(255, 255, 255, 0.05);
-    backdrop-filter: blur(16px);
+    background: rgba(255, 255, 255, 0.06);
+    backdrop-filter: blur(20px);
     border: 1px solid rgba(255, 255, 255, 0.1);
     border-radius: 1.5rem;
     box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
   }
 
   .uno-logo {
-    width: 100px;
-    height: 100px;
+    width: 90px;
+    height: 90px;
     border-radius: 50%;
     background: linear-gradient(135deg, #e53e3e 0%, #c53030 100%);
     border: 4px solid white;
@@ -36,16 +38,26 @@
   }
 
   .uno-logo span {
-    font-size: 2rem;
+    font-size: 1.8rem;
     font-weight: 900;
     font-style: italic;
     letter-spacing: 2px;
     text-shadow: 2px 2px 0 #9b2c2c;
   }
 
+  @media (min-width: 640px) {
+    .uno-logo {
+      width: 100px;
+      height: 100px;
+    }
+    .uno-logo span {
+      font-size: 2rem;
+    }
+  }
+
   .uno-logo-sm {
-    width: 48px;
-    height: 48px;
+    width: 40px;
+    height: 40px;
     border-radius: 50%;
     background: linear-gradient(135deg, #e53e3e 0%, #c53030 100%);
     border: 2px solid white;
@@ -55,33 +67,142 @@
     box-shadow: 0 4px 12px rgba(229, 62, 62, 0.4);
   }
 
+  @media (min-width: 640px) {
+    .uno-logo-sm {
+      width: 48px;
+      height: 48px;
+    }
+  }
+
   .uno-input {
-    @apply w-full bg-white/10 border border-white/20 rounded-xl px-4 py-3 text-white placeholder-gray-500 outline-none focus:border-white/40 focus:bg-white/15 transition-all;
+    @apply w-full bg-white/10 border border-white/20 rounded-xl px-4 py-3 text-white placeholder-gray-500 outline-none focus:border-white/40 focus:bg-white/15 transition-all text-sm sm:text-base;
   }
 
   .btn-primary {
-    @apply w-full py-3 rounded-xl font-bold text-white transition-all duration-150 disabled:opacity-50 disabled:cursor-not-allowed;
+    @apply w-full py-3 rounded-xl font-bold text-white transition-all duration-150 disabled:opacity-50 disabled:cursor-not-allowed text-sm sm:text-base;
     background: linear-gradient(135deg, #e53e3e 0%, #c53030 100%);
     box-shadow: 0 4px 15px rgba(229, 62, 62, 0.4);
   }
-
   .btn-primary:not(:disabled):hover {
     transform: translateY(-1px);
     box-shadow: 0 6px 20px rgba(229, 62, 62, 0.5);
   }
-
   .btn-primary:not(:disabled):active {
     transform: translateY(0);
   }
 
   .btn-secondary {
-    @apply w-full py-3 rounded-xl font-bold text-white transition-all duration-150;
+    @apply w-full py-3 rounded-xl font-bold text-white transition-all duration-150 text-sm sm:text-base;
     background: rgba(255, 255, 255, 0.1);
     border: 1px solid rgba(255, 255, 255, 0.2);
   }
-
   .btn-secondary:hover {
     background: rgba(255, 255, 255, 0.15);
     transform: translateY(-1px);
   }
+
+  .scrollbar-hide {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+  .scrollbar-hide::-webkit-scrollbar {
+    display: none;
+  }
 }
+
+/* ===== ANIMATIONS ===== */
+
+@keyframes pop-in {
+  0% { transform: scale(0.5) translateY(-20px); opacity: 0; }
+  50% { transform: scale(1.1) translateY(0); opacity: 1; }
+  100% { transform: scale(1) translateY(0); opacity: 1; }
+}
+
+@keyframes slide-down-out {
+  0% { transform: translateY(0); opacity: 1; }
+  100% { transform: translateY(-30px); opacity: 0; }
+}
+
+@keyframes shake {
+  0%, 100% { transform: translateX(0); }
+  15% { transform: translateX(-6px) rotate(-2deg); }
+  30% { transform: translateX(6px) rotate(2deg); }
+  45% { transform: translateX(-4px) rotate(-1deg); }
+  60% { transform: translateX(4px) rotate(1deg); }
+  75% { transform: translateX(-2px); }
+}
+
+@keyframes bounce-in {
+  0% { transform: scale(0); opacity: 0; }
+  50% { transform: scale(1.15); opacity: 1; }
+  70% { transform: scale(0.95); }
+  100% { transform: scale(1); }
+}
+
+@keyframes draw-pull {
+  0% { transform: translateY(-40px) scale(0.7); opacity: 0; }
+  60% { transform: translateY(5px) scale(1.05); opacity: 1; }
+  100% { transform: translateY(0) scale(1); opacity: 1; }
+}
+
+@keyframes card-glow {
+  0%, 100% { filter: drop-shadow(0 0 4px rgba(255,215,0,0.4)); }
+  50% { filter: drop-shadow(0 0 12px rgba(255,215,0,0.8)); }
+}
+
+@keyframes card-land {
+  0% { transform: translateY(-30px) rotate(-10deg) scale(0.8); opacity: 0; }
+  60% { transform: translateY(3px) rotate(2deg) scale(1.03); opacity: 1; }
+  100% { transform: translateY(0) rotate(0) scale(1); opacity: 1; }
+}
+
+@keyframes reverse-rotate {
+  0% { transform: scale(0.5) rotate(0deg); opacity: 0; }
+  30% { transform: scale(1.1) rotate(180deg); opacity: 1; }
+  60% { transform: scale(1) rotate(360deg); opacity: 1; }
+  100% { transform: scale(1) rotate(360deg); opacity: 1; }
+}
+
+@keyframes current-player {
+  0%, 100% { filter: drop-shadow(0 0 6px rgba(255,215,0,0.3)); }
+  50% { filter: drop-shadow(0 0 14px rgba(255,215,0,0.6)); }
+}
+
+@keyframes fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes bounce-slow {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-8px); }
+}
+
+@keyframes draw-fly {
+  0% { transform: translateY(-60px) scale(0.5); opacity: 0; }
+  40% { opacity: 1; }
+  70% { transform: translateY(10px) scale(1.05); }
+  100% { transform: translateY(0) scale(1); }
+}
+
+@keyframes pulse-ring {
+  0% { box-shadow: 0 0 0 0 rgba(255,215,0,0.4); }
+  70% { box-shadow: 0 0 0 10px rgba(255,215,0,0); }
+  100% { box-shadow: 0 0 0 0 rgba(255,215,0,0); }
+}
+
+.animate-pop { animation: pop-in 0.4s cubic-bezier(0.34, 1.56, 0.64, 1) forwards; }
+.animate-shake { animation: shake 0.5s ease-in-out; }
+.animate-bounce-in { animation: bounce-in 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) forwards; }
+.animate-draw-pull { animation: draw-pull 0.5s ease-out forwards; }
+.animate-card-glow { animation: card-glow 1.5s ease-in-out infinite; }
+.animate-card-land { animation: card-land 0.4s ease-out; }
+.animate-reverse-banner { animation: reverse-rotate 0.6s ease-out forwards, slide-down-out 0.4s 1.8s ease-in forwards; }
+.animate-skip-banner { animation: shake 0.5s ease-out, pop-in 0.3s ease-out, slide-down-out 0.4s 1.8s ease-in forwards; }
+.animate-draw-banner { animation: draw-fly 0.4s ease-out forwards, slide-down-out 0.4s 1.8s ease-in forwards; }
+.animate-color-banner { animation: bounce-in 0.4s ease-out forwards, slide-down-out 0.4s 1.8s ease-in forwards; }
+.animate-win-banner { animation: bounce-in 0.6s ease-out forwards; }
+.animate-current-player { animation: current-player 1.5s ease-in-out infinite; }
+.animate-fade-in { animation: fade-in 0.2s ease-out; }
+.animate-bounce-slow { animation: bounce-slow 2s ease-in-out infinite; }
+.animate-pulse-ring { animation: pulse-ring 1.5s ease-out infinite; }

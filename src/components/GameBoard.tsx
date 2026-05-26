@@ -4,7 +4,8 @@ import CardImage from './CardImage';
 import PlayerHand from './PlayerHand';
 import OpponentHand from './OpponentHand';
 import ColorPicker from './ColorPicker';
-import { RotateCcw, RotateCw } from 'lucide-react';
+import GameNotifications from './GameNotifications';
+import { RotateCcw, RotateCw, Layers } from 'lucide-react';
 
 interface Props {
   gameState: GameState;
@@ -14,19 +15,8 @@ interface Props {
 }
 
 const COLOR_BG: Record<string, string> = {
-  red: 'from-red-900/50 to-red-700/20',
-  green: 'from-green-900/50 to-green-700/20',
-  blue: 'from-blue-900/50 to-blue-700/20',
-  yellow: 'from-yellow-900/50 to-yellow-700/20',
-  wild: 'from-gray-900/50 to-gray-700/20',
-};
-
-const COLOR_GLOW: Record<string, string> = {
-  red: '0 0 60px 20px rgba(229,62,62,0.25)',
-  green: '0 0 60px 20px rgba(56,161,105,0.25)',
-  blue: '0 0 60px 20px rgba(49,130,206,0.25)',
-  yellow: '0 0 60px 20px rgba(214,158,46,0.25)',
-  wild: '0 0 60px 20px rgba(90,90,90,0.2)',
+  red: 'from-red-950/60', green: 'from-green-950/60',
+  blue: 'from-blue-950/60', yellow: 'from-yellow-950/40', wild: 'from-gray-950/60',
 };
 
 export default function GameBoard({ gameState, myPlayerId, onPlay, onDraw }: Props) {
@@ -58,134 +48,107 @@ export default function GameBoard({ gameState, myPlayerId, onPlay, onDraw }: Pro
     }
   };
 
-  const getPosition = (opIdx: number): 'top' | 'left' | 'right' => {
-    if (opponents.length === 1) return 'top';
-    if (opponents.length === 2) return opIdx === 0 ? 'left' : 'right';
-    const positions: Array<'top' | 'left' | 'right'> = ['left', 'top', 'right'];
-    return positions[opIdx] ?? 'top';
-  };
-
   if (gameState.phase === 'ended') {
     return (
-      <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50">
-        <div className="glass-card p-10 flex flex-col items-center gap-6 max-w-sm w-full mx-4 text-center">
-          <div className="text-6xl">🎉</div>
-          <h2 className="text-3xl font-black text-white">
+      <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
+        <div className="glass-card p-8 sm:p-10 flex flex-col items-center gap-4 max-w-sm w-full text-center">
+          <div className="text-5xl animate-bounce-slow">&#127942;</div>
+          <h2 className="text-2xl sm:text-3xl font-black text-white">
             {gameState.winner === me?.name ? 'Hai vinto!' : `${gameState.winner} ha vinto!`}
           </h2>
-          <p className="text-gray-400">Ricarica la pagina per giocare ancora</p>
+          <p className="text-gray-400 text-sm">Ricarica la pagina per giocare ancora</p>
         </div>
       </div>
     );
   }
 
   return (
-    <div
-      className={`min-h-screen flex flex-col bg-gradient-to-br ${COLOR_BG[gameState.currentColor]} bg-uno-bg relative overflow-hidden`}
-      style={{ boxShadow: `inset ${COLOR_GLOW[gameState.currentColor]}` }}
-    >
-      {/* Header */}
-      <div className="flex items-center justify-between px-4 pt-3 pb-1">
+    <div className={`min-h-screen flex flex-col bg-gradient-to-b ${COLOR_BG[gameState.currentColor] ?? ''} to-gray-950 relative overflow-hidden`}>
+      {/* Notifications */}
+      <GameNotifications event={gameState.lastEvent} />
+
+      {/* Header bar */}
+      <div className="flex items-center justify-between px-3 sm:px-4 pt-2 pb-1 bg-black/30 backdrop-blur-sm">
         <div className="uno-logo-sm">
-          <span className="text-white text-sm font-black tracking-widest">UNO</span>
+          <span className="text-white text-xs sm:text-sm font-black tracking-widest">UNO</span>
         </div>
-        <div className="flex items-center gap-2 text-gray-300 text-sm">
+        <div className="flex items-center gap-2 sm:gap-3 text-gray-300 text-xs sm:text-sm">
           {gameState.direction === 'clockwise'
-            ? <RotateCw size={16} className="text-gray-400" />
-            : <RotateCcw size={16} className="text-gray-400" />}
-          <span>Colore: <ColorDot color={gameState.currentColor} /></span>
+            ? <RotateCw size={14} className="text-gray-400" />
+            : <RotateCcw size={14} className="text-gray-400" />}
+          <span className="flex items-center gap-1">
+            Colore: <ColorDot color={gameState.currentColor} />
+          </span>
         </div>
-        <div className="text-gray-400 text-xs">
-          Mazzo: {gameState.drawPile.length}
+        <div className="flex items-center gap-1 text-gray-400 text-xs">
+          <Layers size={12} /> {gameState.drawPile.length}
         </div>
       </div>
 
-      {/* Main game area */}
-      <div className="flex-1 flex flex-col items-center justify-between px-4 py-2 gap-4">
+      {/* Main layout */}
+      <div className="flex-1 flex flex-col justify-between px-2 sm:px-4 py-2 sm:py-4 gap-2 sm:gap-4 max-h-[calc(100vh-44px)]">
 
-        {/* Opponents top */}
-        <div className="flex justify-around w-full max-w-2xl gap-4">
-          {opponents.map(({ player, idx }, opIdx) => {
-            const pos = getPosition(opIdx);
-            if (pos === 'top' || opponents.length <= 2) {
-              return (
-                <OpponentHand
-                  key={player.id}
-                  player={player}
-                  isCurrentPlayer={gameState.currentPlayerIndex === idx}
-                  position={pos}
-                />
-              );
-            }
-            return null;
-          })}
+        {/* Opponents row */}
+        <div className="flex justify-center sm:justify-around gap-3 sm:gap-6 flex-wrap">
+          {opponents.map(({ player, idx }) => (
+            <OpponentHand
+              key={player.id}
+              player={player}
+              isCurrentPlayer={gameState.currentPlayerIndex === idx}
+              position="top"
+            />
+          ))}
         </div>
 
-        {/* Center: draw pile + discard pile */}
-        <div className="flex items-center justify-center gap-6 my-2">
+        {/* Center area: draw + discard */}
+        <div className="flex items-center justify-center gap-4 sm:gap-8">
           {/* Draw pile */}
           <div
-            className="cursor-pointer transition-transform hover:scale-105 active:scale-95"
+            className={`relative ${isMyTurn ? 'cursor-pointer hover:scale-105 active:scale-95' : ''} transition-transform`}
             onClick={isMyTurn ? onDraw : undefined}
-            title={isMyTurn ? 'Pesca una carta' : ''}
           >
-            <div className="relative">
-              {[2, 1, 0].map(offset => (
-                <div
-                  key={offset}
-                  className="absolute"
-                  style={{ top: -offset * 2, left: offset, zIndex: offset }}
-                >
-                  <CardImage
-                    card={{ id: `pile-${offset}`, color: 'wild', value: 'wild' }}
-                    faceDown
-                  />
-                </div>
-              ))}
-              <div style={{ visibility: 'hidden' }}>
-                <CardImage card={{ id: 'placeholder', color: 'wild', value: 'wild' }} faceDown />
+            {[2, 1, 0].map(offset => (
+              <div
+                key={offset}
+                className="absolute"
+                style={{ top: -offset * 1.5, left: offset * 0.5, zIndex: offset }}
+              >
+                <CardImage card={{ id: `pile-${offset}`, color: 'wild', value: 'wild' }} faceDown />
               </div>
+            ))}
+            <div style={{ visibility: 'hidden' }}>
+              <CardImage card={{ id: 'ph', color: 'wild', value: 'wild' }} faceDown />
             </div>
             {isMyTurn && (
-              <p className="text-center text-yellow-300 text-xs mt-1 animate-pulse font-semibold">
+              <p className="text-center text-yellow-300 text-[10px] sm:text-xs mt-0.5 animate-pulse font-semibold">
                 Pesca
               </p>
             )}
           </div>
 
           {/* Discard pile */}
-          <div className="relative">
-            {gameState.discardPile.slice(-3).map((card, i, arr) => (
-              <div
-                key={card.id}
-                className="absolute"
-                style={{
-                  top: -(arr.length - 1 - i) * 2,
-                  left: (arr.length - 1 - i) * 2,
-                  zIndex: i,
-                  transform: `rotate(${(i - arr.length + 1) * 8}deg)`,
-                }}
-              >
-                <CardImage card={card} />
-              </div>
-            ))}
-            <div style={{ visibility: 'hidden' }}>
-              <CardImage card={topCard} />
-            </div>
+          <div className="relative animate-card-land">
+            {topCard && <CardImage card={topCard} />}
           </div>
         </div>
 
         {/* Turn indicator */}
-        {isMyTurn && (
-          <div className="bg-yellow-400/20 border border-yellow-400/40 rounded-full px-6 py-1.5">
-            <p className="text-yellow-300 text-sm font-bold animate-pulse">Il tuo turno!</p>
-          </div>
-        )}
+        <div className="text-center">
+          {isMyTurn ? (
+            <span className="inline-block bg-yellow-400/20 border border-yellow-400/40 rounded-full px-4 sm:px-6 py-1 text-yellow-300 text-xs sm:text-sm font-bold animate-pulse">
+              Il tuo turno!
+            </span>
+          ) : (
+            <span className="inline-block text-gray-500 text-xs sm:text-sm">
+              Turno di {gameState.players[gameState.currentPlayerIndex]?.name}
+            </span>
+          )}
+        </div>
 
         {/* My hand */}
         {me && (
-          <div className="w-full max-w-2xl">
-            <p className="text-center text-gray-400 text-xs mb-1">
+          <div className="w-full">
+            <p className="text-center text-gray-500 text-[10px] sm:text-xs mb-1">
               {me.name} &mdash; {me.hand.length} carte
             </p>
             <PlayerHand
@@ -206,15 +169,7 @@ export default function GameBoard({ gameState, myPlayerId, onPlay, onDraw }: Pro
 
 function ColorDot({ color }: { color: string }) {
   const colors: Record<string, string> = {
-    red: 'bg-red-500',
-    green: 'bg-green-500',
-    blue: 'bg-blue-500',
-    yellow: 'bg-yellow-400',
-    wild: 'bg-gray-500',
+    red: 'bg-red-500', green: 'bg-green-500', blue: 'bg-blue-500', yellow: 'bg-yellow-400', wild: 'bg-gray-500',
   };
-  return (
-    <span
-      className={`inline-block w-3 h-3 rounded-full ${colors[color] ?? 'bg-gray-500'} ml-1 align-middle`}
-    />
-  );
+  return <span className={`inline-block w-3 h-3 rounded-full ${colors[color] ?? 'bg-gray-500'} align-middle shadow-lg`} />;
 }

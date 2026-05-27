@@ -6,11 +6,8 @@ export type ConnectionStatus = 'idle' | 'connecting' | 'connected' | 'error';
 
 interface UsePeerOptions {
   onMessage: (msg: PeerMessage, fromId: string) => void;
-  onPeerConnect?: (peerId: string) => void;
-  onPeerDisconnect?: (peerId: string) => void;
 }
 
-// Prefix to namespace room codes from other peerjs IDs
 const ROOM_PREFIX = 'uno-room-';
 
 export function peerIdFromRoom(roomCode: string): string {
@@ -22,45 +19,44 @@ export function roomFromPeerId(peerId: string): string | null {
   return null;
 }
 
-export function usePeer({ onMessage, onPeerConnect, onPeerDisconnect }: UsePeerOptions) {
+export function usePeer({ onMessage }: UsePeerOptions) {
   const peerRef = useRef<Peer | null>(null);
   const connectionsRef = useRef<Map<string, DataConnection>>(new Map());
-  const [myId, setMyId] = useState<string | null>(null);
+  const [myPeerId, setMyPeerId] = useState<string | null>(null);
   const [status, setStatus] = useState<ConnectionStatus>('idle');
   const onMessageRef = useRef(onMessage);
-  const onPeerConnectRef = useRef(onPeerConnect);
-  const onPeerDisconnectRef = useRef(onPeerDisconnect);
 
+  // Keep onMessage ref updated
   useEffect(() => { onMessageRef.current = onMessage; }, [onMessage]);
-  useEffect(() => { onPeerConnectRef.current = onPeerConnect; }, [onPeerConnect]);
-  useEffect(() => { onPeerDisconnectRef.current = onPeerDisconnect; }, [onPeerDisconnect]);
 
+  // Setup data handlers for a connection
   const setupConnection = useCallback((conn: DataConnection) => {
+    conn.on('open', () => {
+      connectionsRef.current.set(conn.peer, conn);
+    });
     conn.on('data', (data) => {
       onMessageRef.current(data as PeerMessage, conn.peer);
     });
-    conn.on('open', () => {
-      connectionsRef.current.set(conn.peer, conn);
-      onPeerConnectRef.current?.(conn.peer);
-    });
     conn.on('close', () => {
       connectionsRef.current.delete(conn.peer);
-      onPeerDisconnectRef.current?.(conn.peer);
     });
     conn.on('error', () => {
       connectionsRef.current.delete(conn.peer);
-      onPeerDisconnectRef.current?.(conn.peer);
     });
   }, []);
 
-  const initAsHost = useCallback((roomCode: string) => {
+  // Initialize as HOST (with room code)
+  const initHost = useCallback((roomCode: string) => {
+    if (peerRef.current) {
+      peerRef.current.destroy();
+    }
     setStatus('connecting');
     const peerId = peerIdFromRoom(roomCode);
-    const peer = new Peer(peerId, { debug: 0 });
+    const peer = new Peer(peerId, { debug: 1 });
     peerRef.current = peer;
 
     peer.on('open', (id) => {
-      setMyId(id);
+      setMyPeerId(id);
       setStatus('connected');
     });
 
@@ -68,64 +64,93 @@ export function usePeer({ onMessage, onPeerConnect, onPeerDisconnect }: UsePeerO
       setupConnection(conn);
     });
 
-    peer.on('error', () => {
+    peer.on('error', (err) => {
+      console.error('Host peer error:', err);
       setStatus('error');
-    });
-
-    peer.on('disconnected', () => {
-      setStatus('idle');
     });
   }, [setupConnection]);
 
-  const initAsGuest = useCallback(() => {
+  // Initialize as GUEST (random ID, connect to host)
+  const initGuest = useCallback(() => {
+    if (peerRef.current) {
+      peerRef.current.destroy();
+    }
     setStatus('connecting');
-    // Guest gets a random ID
-    const peer = new Peer({ debug: 0 });
+    const peer = new Peer({ debug: 1 });
     peerRef.current = peer;
 
     peer.on('open', (id) => {
-      setMyId(id);
+      setMyPeerId(id);
       setStatus('connected');
     });
 
-    peer.on('error', () => {
+    peer.on('error', (err) => {
+      console.error('Guest peer error:', err);
       setStatus('error');
-    });
-
-    peer.on('disconnected', () => {
-      setStatus('idle');
     });
   }, []);
 
-  const connectToHost = useCallback((roomCode: string) => {
-    if (!peerRef.current) return;
+  // Connect to host (guest calls this)
+  const connectToHost = useCallback((roomCode: string): DataConnection | null => {
+    if (!peerRef.current) return null;
     const hostPeerId = peerIdFromRoom(roomCode);
     const conn = peerRef.current.connect(hostPeerId, { reliable: true });
     setupConnection(conn);
+    // Return the connection so caller can send immediately after open
+    return conn;
   }, [setupConnection]);
 
+  // Send to specific peer
   const sendTo = useCallback((peerId: string, msg: PeerMessage) => {
     const conn = connectionsRef.current.get(peerId);
-    if (conn?.open) conn.send(msg);
-  }, []);
-
-  const broadcast = useCallback((msg: PeerMessage) => {
-    for (const conn of connectionsRef.current.values()) {
-      if (conn.open) conn.send(msg);
+    if (conn && conn.open) {
+      conn.send(msg);
+    } else {
+      console.warn('Connection not open for peer:', peerId);
     }
   }, []);
 
-  const destroy = useCallback(() => {
-    peerRef.current?.destroy();
-    peerRef.current = null;
-    connectionsRef.current.clear();
-    setMyId(null);
-    setStatus('idle');
+  // Broadcast to all connected peers
+  const broadcast = useCallback((msg: PeerMessage) => {
+    for (const conn of connectionsRef.current.values()) {
+      if (conn.open) {
+        conn.send(msg);
+      }
+    }
   }, []);
 
-  const connectedPeerIds = useCallback(() => {
+  // Get all connected peer IDs
+  const getConnectedPeerIds = useCallback(() => {
     return [...connectionsRef.current.keys()];
   }, []);
 
-  return { myId, status, initAsHost, initAsGuest, connectToHost, sendTo, broadcast, destroy, connectedPeerIds };
+  // Check if connected to specific peer
+  const isConnected = useCallback((peerId: string) => {
+    const conn = connectionsRef.current.get(peerId);
+    return conn && conn.open;
+  }, []);
+
+  // Cleanup
+  const destroy = useCallback(() => {
+    if (peerRef.current) {
+      peerRef.current.destroy();
+      peerRef.current = null;
+    }
+    connectionsRef.current.clear();
+    setMyPeerId(null);
+    setStatus('idle');
+  }, []);
+
+  return {
+    myPeerId,
+    status,
+    initHost,
+    initGuest,
+    connectToHost,
+    sendTo,
+    broadcast,
+    getConnectedPeerIds,
+    isConnected,
+    destroy,
+  };
 }

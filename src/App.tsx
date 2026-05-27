@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { GameState, Player, PeerMessage, Color, generateRoomCode } from './types';
 import { initGame, applyPlay, applyDraw } from './gameLogic';
-import { usePeer } from './hooks/usePeer';
+import { usePeer, peerIdFromRoom } from './hooks/usePeer';
 import Lobby from './components/Lobby';
 import GameBoard from './components/GameBoard';
 
@@ -21,15 +21,16 @@ export default function App() {
   const [roomCode, setRoomCode] = useState<string | null>(null);
   const [urlRoomCode] = useState(() => getRoomCodeFromUrl());
 
-  const peerIdToPlayerRef = useRef<Map<string, string>>(new Map());
-  const nameRef = useRef<string>('');
+  // Refs for values needed in callbacks
+  const nameRef = useRef<string>('')
+;
   const roomCodeRef = useRef<string | null>(null);
-  const isHostRef = useRef(false);
-  const myIdRef = useRef<string | null>(null);
-  const sendToRef = useRef<(peerId: string, msg: PeerMessage) => void>(() => {});
+  const myPlayerRef = useRef<Player | null>(null);
+  const lobbyPlayersRef = useRef<Player[]>([]);
 
   // Keep refs in sync
-  isHostRef.current = isHost;
+  useEffect(() => { myPlayerRef.current = myPlayer; }, [myPlayer]);
+  useEffect(() => { lobbyPlayersRef.current = lobbyPlayers; }, [lobbyPlayers]);
 
   // Clean URL after reading room code
   useEffect(() => {
@@ -38,26 +39,43 @@ export default function App() {
     }
   }, [urlRoomCode]);
 
-  const handleMessage = useCallback((msg: PeerMessage, fromId: string) => {
+  // Handle incoming messages
+  const handleMessage = useCallback((msg: PeerMessage, fromPeerId: string) => {
+    console.log('Received message:', msg.type, 'from', fromPeerId);
+
     switch (msg.type) {
       case 'player-join': {
+        // Host receives this from guest
         setLobbyPlayers(prev => {
-          if (prev.find(p => p.id === msg.player.id)) return prev;
-          peerIdToPlayerRef.current.set(fromId, msg.player.id);
-          return [...prev, msg.player];
+          const exists = prev.find(p => p.id === msg.player.id);
+          if (exists) return prev;
+          const updated = [...prev, msg.player];
+          // Broadcast updated lobby to all connections
+          setTimeout(() => {
+            sendToRef.current(fromPeerId, { type: 'lobby-state', players: updated });
+            broadcastRef.current({ type: 'lobby-state', players: updated });
+          }, 100);
+          return updated;
         });
         break;
       }
+
       case 'lobby-state': {
+        // Guest receives lobby state from host
         setLobbyPlayers(msg.players);
+        // Find myself in the lobby
+        const me = msg.players.find(p => p.id === myPlayerRef.current?.id);
+        if (me) setMyPlayer(me);
         break;
       }
+
       case 'game-start':
       case 'game-state': {
         setGameState(msg.state);
         setAppPhase('playing');
         break;
       }
+
       case 'player-left': {
         setLobbyPlayers(prev => prev.filter(p => p.id !== msg.playerId));
         break;
@@ -65,107 +83,113 @@ export default function App() {
     }
   }, []);
 
-  const handlePeerConnect = useCallback((peerId: string) => {
-    // If we're a guest and just connected to host, send our join message
-    if (!isHostRef.current && myIdRef.current) {
-      const player: Player = { id: myIdRef.current, name: nameRef.current, hand: [], isHost: false };
-      setMyPlayer(player);
-      sendToRef.current(peerId, { type: 'player-join', player });
-    }
-  }, []);
+  const {
+    myPeerId,
+    status,
+    initHost,
+    initGuest,
+    connectToHost,
+    sendTo,
+    broadcast,
+    isConnected,
+  } = usePeer({ onMessage: handleMessage });
 
-  const handlePeerDisconnect = useCallback((peerId: string) => {
-    const playerId = peerIdToPlayerRef.current.get(peerId);
-    if (playerId) {
-      setLobbyPlayers(prev => prev.filter(p => p.id !== playerId));
-    }
-  }, []);
-
-  const { myId, status, initAsHost, initAsGuest, connectToHost, sendTo, broadcast } = usePeer({
-    onMessage: handleMessage,
-    onPeerConnect: handlePeerConnect,
-    onPeerDisconnect: handlePeerDisconnect,
-  });
-
-  // Keep myId ref in sync
-  useEffect(() => { myIdRef.current = myId; }, [myId]);
-  // Keep sendTo ref in sync
+  // Refs for send functions
+  const sendToRef = useRef(sendTo);
+  const broadcastRef = useRef(broadcast);
   useEffect(() => { sendToRef.current = sendTo; }, [sendTo]);
+  useEffect(() => { broadcastRef.current = broadcast; }, [broadcast]);
 
-  // Host: once myId is set, create self player
-  const hostReadyRef = useRef(false);
+  // Host: when peer is ready, add self to lobby
+  const hostInitRef = useRef(false);
   useEffect(() => {
-    if (myId && isHost && !hostReadyRef.current) {
-      hostReadyRef.current = true;
-      const player: Player = { id: myId, name: nameRef.current, hand: [], isHost: true };
+    if (isHost && myPeerId && !hostInitRef.current) {
+      hostInitRef.current = true;
+      const player: Player = { id: myPeerId, name: nameRef.current, hand: [], isHost: true };
       setMyPlayer(player);
       setLobbyPlayers([player]);
     }
-  }, [myId, isHost]);
+  }, [isHost, myPeerId]);
 
-  // Host: broadcast lobby state when it changes
-  const prevLobbyLenRef = useRef(0);
+  // Guest: when peer is ready and we have a room code, connect to host
+  const guestInitRef = useRef(false);
   useEffect(() => {
-    if (isHost && myId && lobbyPlayers.length > 0 && lobbyPlayers.length !== prevLobbyLenRef.current) {
-      prevLobbyLenRef.current = lobbyPlayers.length;
-      broadcast({ type: 'lobby-state', players: lobbyPlayers });
-    }
-  }, [isHost, myId, lobbyPlayers, broadcast]);
+    if (!isHost && myPeerId && roomCodeRef.current && !guestInitRef.current) {
+      guestInitRef.current = true;
+      const hostPeerId = peerIdFromRoom(roomCodeRef.current);
 
-  // Guest: once myId is set, connect to host room
-  const guestConnectRef = useRef(false);
-  useEffect(() => {
-    if (myId && !isHost && roomCodeRef.current && !guestConnectRef.current) {
-      guestConnectRef.current = true;
-      connectToHost(roomCodeRef.current);
-    }
-  }, [myId, isHost, connectToHost]);
+      // Create player and connect
+      const player: Player = { id: myPeerId, name: nameRef.current, hand: [], isHost: false };
+      setMyPlayer(player);
 
+      // Small delay to ensure peer is ready
+      setTimeout(() => {
+        connectToHost(roomCodeRef.current!);
+      }, 200);
+
+      // Wait for connection then send join
+      const checkAndJoin = () => {
+        if (isConnected(hostPeerId)) {
+          sendToRef.current(hostPeerId, { type: 'player-join', player });
+        } else {
+          setTimeout(checkAndJoin, 100);
+        }
+      };
+      setTimeout(checkAndJoin, 500);
+    }
+  }, [isHost, myPeerId, connectToHost, isConnected]);
+
+  // Handle create game
   const handleHost = useCallback((name: string) => {
     const code = generateRoomCode();
     nameRef.current = name;
     roomCodeRef.current = code;
     setRoomCode(code);
     setIsHost(true);
-    hostReadyRef.current = false;
-    initAsHost(code);
-  }, [initAsHost]);
+    hostInitRef.current = false;
+    initHost(code);
+  }, [initHost]);
 
+  // Handle join game
   const handleJoin = useCallback((code: string, name: string) => {
     nameRef.current = name;
-    roomCodeRef.current = code;
-    setRoomCode(code);
+    roomCodeRef.current = code.toUpperCase();
+    setRoomCode(code.toUpperCase());
     setIsHost(false);
-    guestConnectRef.current = false;
-    initAsGuest();
-  }, [initAsGuest]);
+    guestInitRef.current = false;
+    initGuest();
+  }, [initGuest]);
 
+  // Handle start game
   const handleStart = useCallback(() => {
     if (!isHost || lobbyPlayers.length < 2) return;
     const state = initGame(lobbyPlayers);
     setGameState(state);
     setAppPhase('playing');
-    broadcast({ type: 'game-start', state });
-  }, [isHost, lobbyPlayers, broadcast]);
+    broadcastRef.current({ type: 'game-start', state });
+  }, [isHost, lobbyPlayers]);
 
+  // Handle play card
   const handlePlay = useCallback((cardId: string, chosenColor?: Color) => {
     setGameState(prev => {
       if (!prev) return prev;
       const next = applyPlay(prev, cardId, chosenColor);
-      broadcast({ type: 'game-state', state: next });
+      broadcastRef.current({ type: 'game-state', state: next });
       return next;
     });
-  }, [broadcast]);
+  }, []);
 
+  // Handle draw card
   const handleDraw = useCallback(() => {
     setGameState(prev => {
       if (!prev) return prev;
       const next = applyDraw(prev);
-      broadcast({ type: 'game-state', state: next });
+      broadcastRef.current({ type: 'game-state', state: next });
       return next;
     });
-  }, [broadcast]);
+  }, []);
 
+  // Render game or lobby
   if (appPhase === 'playing' && gameState && myPlayer) {
     return (
       <GameBoard
@@ -179,7 +203,7 @@ export default function App() {
 
   return (
     <Lobby
-      myId={myId}
+      myId={myPeerId}
       players={lobbyPlayers}
       isHost={isHost}
       roomCode={roomCode}

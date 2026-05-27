@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { GameState, Player, PeerMessage, Color, generateRoomCode } from './types';
+import { GameState, Player, Color } from './types';
 import { initGame, applyPlay, applyDraw } from './gameLogic';
-import { usePeer, peerIdFromRoom } from './hooks/usePeer';
+import { useLobby } from './hooks/usePeer';
 import Lobby from './components/Lobby';
 import GameBoard from './components/GameBoard';
 
@@ -21,16 +21,21 @@ export default function App() {
   const [roomCode, setRoomCode] = useState<string | null>(null);
   const [urlRoomCode] = useState(() => getRoomCodeFromUrl());
 
-  // Refs for values needed in callbacks
-  const nameRef = useRef<string>('')
-;
-  const roomCodeRef = useRef<string | null>(null);
-  const myPlayerRef = useRef<Player | null>(null);
-  const lobbyPlayersRef = useRef<Player[]>([]);
+  const {
+    myPeerId,
+    status,
+    getLobbyOrCreate,
+    getPlayers,
+    subscribePlayers,
+    subscribeGameState,
+    updateGameState,
+    updateLobbyStatus,
+    leaveLobby,
+  } = useLobby();
 
-  // Keep refs in sync
-  useEffect(() => { myPlayerRef.current = myPlayer; }, [myPlayer]);
-  useEffect(() => { lobbyPlayersRef.current = lobbyPlayers; }, [lobbyPlayers]);
+  const lobbyIdRef = useRef<string | null>(null);
+  const unsubscribeRef = useRef<(() => void) | null>(null);
+  const gameUnsubscribeRef = useRef<(() => void) | null>(null);
 
   // Clean URL after reading room code
   useEffect(() => {
@@ -39,155 +44,134 @@ export default function App() {
     }
   }, [urlRoomCode]);
 
-  // Handle incoming messages
-  const handleMessage = useCallback((msg: PeerMessage, fromPeerId: string) => {
-    console.log('Received message:', msg.type, 'from', fromPeerId);
+  // Host: create lobby
+  const handleHost = useCallback(async (name: string) => {
+    try {
+      const code = Math.random().toString(36).slice(2, 8).toUpperCase();
+      const id = await getLobbyOrCreate(code, true, name);
 
-    switch (msg.type) {
-      case 'player-join': {
-        // Host receives this from guest
-        setLobbyPlayers(prev => {
-          const exists = prev.find(p => p.id === msg.player.id);
-          if (exists) return prev;
-          const updated = [...prev, msg.player];
-          // Broadcast updated lobby to all connections
-          setTimeout(() => {
-            sendToRef.current(fromPeerId, { type: 'lobby-state', players: updated });
-            broadcastRef.current({ type: 'lobby-state', players: updated });
-          }, 100);
-          return updated;
-        });
-        break;
-      }
+      lobbyIdRef.current = id;
+      setRoomCode(code);
+      setIsHost(true);
 
-      case 'lobby-state': {
-        // Guest receives lobby state from host
-        setLobbyPlayers(msg.players);
-        // Find myself in the lobby
-        const me = msg.players.find(p => p.id === myPlayerRef.current?.id);
-        if (me) setMyPlayer(me);
-        break;
-      }
+      // Create host player
+      const hostPlayer: Player = { id: myPeerId, name, hand: [], isHost: true };
+      setMyPlayer(hostPlayer);
+      setLobbyPlayers([hostPlayer]);
 
-      case 'game-start':
-      case 'game-state': {
-        setGameState(msg.state);
+      // Subscribe to player changes
+      const unsub = subscribePlayers(id, (players) => {
+        const converted: Player[] = players.map(p => ({
+          id: p.player_id,
+          name: p.player_name,
+          hand: [],
+          isHost: p.is_host,
+        }));
+        setLobbyPlayers(converted);
+      });
+      unsubscribeRef.current = unsub;
+
+      // Subscribe to game state changes
+      const gameUnsub = subscribeGameState(id, (state) => {
+        setGameState(state);
         setAppPhase('playing');
-        break;
-      }
-
-      case 'player-left': {
-        setLobbyPlayers(prev => prev.filter(p => p.id !== msg.playerId));
-        break;
-      }
+      });
+      gameUnsubscribeRef.current = gameUnsub;
+    } catch (err) {
+      console.error('Failed to create lobby:', err);
     }
-  }, []);
+  }, [myPeerId, getLobbyOrCreate, subscribePlayers, subscribeGameState]);
 
-  const {
-    myPeerId,
-    status,
-    initHost,
-    initGuest,
-    connectToHost,
-    sendTo,
-    broadcast,
-    isConnected,
-  } = usePeer({ onMessage: handleMessage });
+  // Guest: join lobby
+  const handleJoin = useCallback(async (code: string, name: string) => {
+    try {
+      const id = await getLobbyOrCreate(code.toUpperCase(), false, name);
 
-  // Refs for send functions
-  const sendToRef = useRef(sendTo);
-  const broadcastRef = useRef(broadcast);
-  useEffect(() => { sendToRef.current = sendTo; }, [sendTo]);
-  useEffect(() => { broadcastRef.current = broadcast; }, [broadcast]);
+      lobbyIdRef.current = id;
+      setRoomCode(code.toUpperCase());
+      setIsHost(false);
 
-  // Host: when peer is ready, add self to lobby
-  const hostInitRef = useRef(false);
-  useEffect(() => {
-    if (isHost && myPeerId && !hostInitRef.current) {
-      hostInitRef.current = true;
-      const player: Player = { id: myPeerId, name: nameRef.current, hand: [], isHost: true };
-      setMyPlayer(player);
-      setLobbyPlayers([player]);
+      // Create guest player
+      const guestPlayer: Player = { id: myPeerId, name, hand: [], isHost: false };
+      setMyPlayer(guestPlayer);
+
+      // Get initial players
+      const players = await getPlayers(id);
+      const converted: Player[] = players.map(p => ({
+        id: p.player_id,
+        name: p.player_name,
+        hand: [],
+        isHost: p.is_host,
+      }));
+      setLobbyPlayers(converted);
+
+      // Subscribe to player changes
+      const unsub = subscribePlayers(id, (players) => {
+        const converted: Player[] = players.map(p => ({
+          id: p.player_id,
+          name: p.player_name,
+          hand: [],
+          isHost: p.is_host,
+        }));
+        setLobbyPlayers(converted);
+      });
+      unsubscribeRef.current = unsub;
+
+      // Subscribe to game state changes
+      const gameUnsub = subscribeGameState(id, (state) => {
+        setGameState(state);
+        setAppPhase('playing');
+      });
+      gameUnsubscribeRef.current = gameUnsub;
+    } catch (err) {
+      console.error('Failed to join lobby:', err);
     }
-  }, [isHost, myPeerId]);
+  }, [myPeerId, getLobbyOrCreate, getPlayers, subscribePlayers, subscribeGameState]);
 
-  // Guest: when peer is ready and we have a room code, connect to host
-  const guestInitRef = useRef(false);
-  useEffect(() => {
-    if (!isHost && myPeerId && roomCodeRef.current && !guestInitRef.current) {
-      guestInitRef.current = true;
-      const hostPeerId = peerIdFromRoom(roomCodeRef.current);
+  // Host: start game
+  const handleStart = useCallback(async () => {
+    if (!isHost || !lobbyIdRef.current || lobbyPlayers.length < 2) return;
 
-      // Create player and connect
-      const player: Player = { id: myPeerId, name: nameRef.current, hand: [], isHost: false };
-      setMyPlayer(player);
-
-      // Small delay to ensure peer is ready
-      setTimeout(() => {
-        connectToHost(roomCodeRef.current!);
-      }, 200);
-
-      // Wait for connection then send join
-      const checkAndJoin = () => {
-        if (isConnected(hostPeerId)) {
-          sendToRef.current(hostPeerId, { type: 'player-join', player });
-        } else {
-          setTimeout(checkAndJoin, 100);
-        }
-      };
-      setTimeout(checkAndJoin, 500);
-    }
-  }, [isHost, myPeerId, connectToHost, isConnected]);
-
-  // Handle create game
-  const handleHost = useCallback((name: string) => {
-    const code = generateRoomCode();
-    nameRef.current = name;
-    roomCodeRef.current = code;
-    setRoomCode(code);
-    setIsHost(true);
-    hostInitRef.current = false;
-    initHost(code);
-  }, [initHost]);
-
-  // Handle join game
-  const handleJoin = useCallback((code: string, name: string) => {
-    nameRef.current = name;
-    roomCodeRef.current = code.toUpperCase();
-    setRoomCode(code.toUpperCase());
-    setIsHost(false);
-    guestInitRef.current = false;
-    initGuest();
-  }, [initGuest]);
-
-  // Handle start game
-  const handleStart = useCallback(() => {
-    if (!isHost || lobbyPlayers.length < 2) return;
     const state = initGame(lobbyPlayers);
     setGameState(state);
     setAppPhase('playing');
-    broadcastRef.current({ type: 'game-start', state });
-  }, [isHost, lobbyPlayers]);
+    await updateGameState(lobbyIdRef.current, state);
+  }, [isHost, lobbyPlayers, updateGameState]);
 
-  // Handle play card
-  const handlePlay = useCallback((cardId: string, chosenColor?: Color) => {
+  // Any player: play card
+  const handlePlay = useCallback(async (cardId: string, chosenColor?: Color) => {
+    if (!lobbyIdRef.current) return;
+
     setGameState(prev => {
       if (!prev) return prev;
       const next = applyPlay(prev, cardId, chosenColor);
-      broadcastRef.current({ type: 'game-state', state: next });
+      updateGameState(lobbyIdRef.current!, next);
       return next;
     });
-  }, []);
+  }, [updateGameState]);
 
-  // Handle draw card
-  const handleDraw = useCallback(() => {
+  // Any player: draw card
+  const handleDraw = useCallback(async () => {
+    if (!lobbyIdRef.current) return;
+
     setGameState(prev => {
       if (!prev) return prev;
       const next = applyDraw(prev);
-      broadcastRef.current({ type: 'game-state', state: next });
+      updateGameState(lobbyIdRef.current!, next);
       return next;
     });
-  }, []);
+  }, [updateGameState]);
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      if (unsubscribeRef.current) unsubscribeRef.current();
+      if (gameUnsubscribeRef.current) gameUnsubscribeRef.current();
+      if (lobbyIdRef.current && myPeerId) {
+        leaveLobby(lobbyIdRef.current);
+      }
+    };
+  }, [myPeerId, leaveLobby]);
 
   // Render game or lobby
   if (appPhase === 'playing' && gameState && myPlayer) {
